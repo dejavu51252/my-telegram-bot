@@ -35,7 +35,7 @@ logging.basicConfig(
     level=logging.INFO
 )
 
-TOKEN = "8314078721:AAG2FiCKSx2cQdFE4ml7cRuf2DTHwPHuXHs"  # Твой токен
+TOKEN = "8314078721:AAHE3KFuFWAo8mis4tP1fUuPozaBHFGqXKQ"  # Твой токен
 
 def get_main_keyboard():
     keyboard = [
