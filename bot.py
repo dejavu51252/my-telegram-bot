@@ -35,8 +35,7 @@ logging.basicConfig(
     level=logging.INFO
 )
 
-TOKEN = "8314078721:AAHE3KFuFWAo8mis4tP1fUuPozaBHFGqXKQ"  # Твой токен
-
+TOKEN = os.environ.get("BOT_TOKEN")
 def get_main_keyboard():
     keyboard = [
         [InlineKeyboardButton("ℹ️ О нас", callback_data="about")],
@@ -81,17 +80,12 @@ async def text_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     text = update.message.text
 
     # Добавляем реакцию на «О ферме»
-    if text == "🌱 О ферме":
-        await update.message.reply_text(
-            "Ферма полностью автоматизирована! Динозавр фармит кости, а лабиринт — золото. 🌾"
-        )
-    elif text == "❓ Помощь":
+    if text == "❓ Помощь":
         await update.message.reply_text(
             "Раздел помощи:\nНажмите 'ℹ️ О нас' для информации или '✍️ Оставить отзыв' для связи."
         )
-    elif text == "🎲 Бросить кость":
-        score = random.randint(1, 6)
-        await update.message.reply_text(f"🎲 Вам выпало число: {score}!")
+   elif text == "🎲 Бросить кость":
+        await update.message.reply_dice(emoji="🎲")
     elif context.user_data.get("awaiting_feedback"):
         # Сохранение отзыва
         ...
