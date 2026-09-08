@@ -84,7 +84,7 @@ async def text_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text(
             "Раздел помощи:\nНажмите 'ℹ️ О нас' для информации или '✍️ Оставить отзыв' для связи."
         )
-   elif text == "🎲 Бросить кость":
+    elif text == "🎲 Бросить кость":
         await update.message.reply_dice(emoji="🎲")
     elif context.user_data.get("awaiting_feedback"):
         # Сохранение отзыва
