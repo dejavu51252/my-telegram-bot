@@ -14,7 +14,12 @@ from telegram.ext import (
     filters,
 )
 
-# --- 1. ИНИЦИАЛИЗАЦИЯ БАЗЫ ДАННЫХ (SQLite) ---
+# --- 1. СЕКРЕТНЫЕ ПЕРЕМЕННЫЕ (Берутся из настроек Render) ---
+TOKEN = os.environ.get("BOT_TOKEN")
+# Считываем ADMIN_ID из Render (если не найден, ставим 0)
+ADMIN_ID = int(os.environ.get("ADMIN_ID", 0))
+
+# --- 2. ИНИЦИАЛИЗАЦИЯ БАЗЫ ДАННЫХ (SQLite) ---
 def init_db():
     conn = sqlite3.connect("database.db")
     cursor = conn.cursor()
@@ -37,7 +42,7 @@ def init_db():
 
 init_db()
 
-# --- 2. ВЕБ-СЕРВЕР ДЛЯ RENDER ---
+# --- 3. ВЕБ-СЕРВЕР ДЛЯ РАБОТЫ 24/7 (Flask) ---
 web_app = Flask('')
 
 @web_app.route('/')
@@ -52,15 +57,14 @@ def keep_alive():
     t = Thread(target=run_web)
     t.daemon = True
     t.start()
-# -----------------------------
 
+# --- 4. НАСТРОЙКА ЛОГИРОВАНИЯ ---
 logging.basicConfig(
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
     level=logging.INFO
 )
 
-TOKEN = os.environ.get("BOT_TOKEN")
-
+# --- 5. КЛАВИАТУРЫ И ПОЛЬЗОВАТЕЛЬСКАЯ ЛОГИКА ---
 def get_main_keyboard():
     keyboard = [
         [InlineKeyboardButton("🎲 Бросить кубик", callback_data="roll_dice")],
@@ -83,7 +87,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     context.user_data["awaiting_feedback"] = False
     await update.message.reply_text(
-        f"Привет, {user.first_name}! Я бот с поддержкой базы данных. Выбери действие:",
+        f"Привет, {user.first_name}! Я функциональный Telegram-бот. Выбери действие:",
         reply_markup=get_main_keyboard()
     )
 
@@ -103,7 +107,7 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     elif query.data == "about":
         keyboard = [[InlineKeyboardButton("⬅️ Назад", callback_data="main_menu")]]
         await query.edit_message_text(
-            text="Этот бот умеет сохранять данные в SQLite, делать рассылки и отправлять 3D-анимации!",
+            text="Этот бот умеет сохранять данные в SQLite, делать рассылки и запускать 3D-анимации!",
             reply_markup=InlineKeyboardMarkup(keyboard)
         )
     elif query.data == "leave_feedback":
@@ -142,9 +146,14 @@ async def text_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             reply_markup=get_main_keyboard()
         )
 
-# --- АДМИН-ФУНКЦИИ ---
+# --- 6. ЗАЩИЩЕННЫЕ АДМИН-ФУНКЦИИ ---
 
 async def admin_panel(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user_id = update.effective_user.id
+    if user_id != ADMIN_ID:
+        await update.message.reply_text("⛔️ **Доступ запрещен!** Вы не являетесь администратором.", parse_mode="Markdown")
+        return
+
     conn = sqlite3.connect("database.db")
     cursor = conn.cursor()
     cursor.execute("SELECT COUNT(*) FROM users")
@@ -154,7 +163,7 @@ async def admin_panel(update: Update, context: ContextTypes.DEFAULT_TYPE):
     feedbacks = cursor.fetchall()
     conn.close()
 
-    text = f"📊 **Панель Администратора**\n\nВсего пользователей: **{users_count}**\n\n**Команды админа:**\n/broadcast <текст> — Рассылка всем\n/export — Скачать файл базы данных\n\n**Последние отзывы:**\n"
+    text = f"📊 **Панель Администратора**\n\nВсего пользователей в базе: **{users_count}**\n\n**Команды админа:**\n/broadcast <текст> — Рассылка всем\n/export — Скачать файл базы данных\n\n**Последние отзывы:**\n"
     if feedbacks:
         for u_id, fb_text in feedbacks:
             text += f"• ID {u_id}: {fb_text}\n"
@@ -163,8 +172,12 @@ async def admin_panel(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     await update.message.reply_text(text, parse_mode="Markdown")
 
-# Функция массовой рассылки
 async def broadcast(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user_id = update.effective_user.id
+    if user_id != ADMIN_ID:
+        await update.message.reply_text("⛔️ **Доступ запрещен!**", parse_mode="Markdown")
+        return
+
     if not context.args:
         await update.message.reply_text("⚠️ Ошибка! Напиши текст после команды.\nПример: `/broadcast Всем привет!`", parse_mode="Markdown")
         return
@@ -183,32 +196,40 @@ async def broadcast(update: Update, context: ContextTypes.DEFAULT_TYPE):
         try:
             await context.bot.send_message(chat_id=u_id, text=f"📢 **Объявление:**\n\n{message_to_send}", parse_mode="Markdown")
             success_count += 1
-            await asyncio.sleep(0.05)  # Небольшая пауза, чтобы Telegram не заблокировал за спам
+            await asyncio.sleep(0.05)
         except Exception:
-            pass  # Пользователь заблокировал бота
+            pass
 
     await update.message.reply_text(f"✅ Рассылка завершена!\nСообщение получили: **{success_count}** чел.", parse_mode="Markdown")
 
-# Функция выгрузки файла базы данных
 async def export_db(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user_id = update.effective_user.id
+    if user_id != ADMIN_ID:
+        await update.message.reply_text("⛔️ **Доступ запрещен!**", parse_mode="Markdown")
+        return
+
     if os.path.exists("database.db"):
         with open("database.db", "rb") as db_file:
             await update.message.reply_document(document=db_file, filename="database.db", caption="📁 Вот текущий файл базы данных SQLite.")
     else:
         await update.message.reply_text("❌ База данных еще не создана.")
 
+# --- 7. ЗАПУСК БОТА ---
 if __name__ == "__main__":
     keep_alive()
     
     app = ApplicationBuilder().token(TOKEN).build()
     
-    # Регистрация всех команд
+    # 1. Регистрация команд
     app.add_handler(CommandHandler("start", start))
     app.add_handler(CommandHandler("admin", admin_panel))
     app.add_handler(CommandHandler("broadcast", broadcast))
     app.add_handler(CommandHandler("export", export_db))
     
+    # 2. Регистрация кнопок
     app.add_handler(CallbackQueryHandler(button_handler))
+    
+    # 3. Регистрация обработки текста (в самом конце)
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, text_handler))
 
     print("Бот запущен!")
