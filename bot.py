@@ -1,6 +1,7 @@
 import logging
 import os
 import sqlite3
+import asyncio
 from threading import Thread
 from flask import Flask
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
@@ -58,10 +59,13 @@ logging.basicConfig(
     level=logging.INFO
 )
 
+# Считываем токен из переменных окружения Render
 TOKEN = os.environ.get("BOT_TOKEN")
 
+# Главное меню с добавленной кнопкой 3D-кубика
 def get_main_keyboard():
     keyboard = [
+        [InlineKeyboardButton("🎲 Бросить кубик", callback_data="roll_dice")],
         [InlineKeyboardButton("ℹ️ О нас", callback_data="about")],
         [InlineKeyboardButton("✍️ Оставить отзыв", callback_data="leave_feedback")],
     ]
@@ -81,7 +85,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     context.user_data["awaiting_feedback"] = False
     await update.message.reply_text(
-        f"Привет, {user.first_name}! Я бот с поддержкой базы данных. Выбери действие:",
+        f"Привет, {user.first_name}! Я бот с поддержкой базы данных и 3D-анимации. Выбери действие:",
         reply_markup=get_main_keyboard()
     )
 
@@ -89,10 +93,23 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
 
-    if query.data == "about":
+    if query.data == "roll_dice":
+        # Отправляем 3D-анимацию броска кубика
+        dice_message = await context.bot.send_dice(chat_id=query.message.chat_id, emoji="🎲")
+        value = dice_message.dice.value
+        
+        # Ждем 3 секунды, пока крутится анимация
+        await asyncio.sleep(3)
+        await query.message.reply_text(
+            f"🎯 Выпало число: **{value}**!",
+            parse_mode="Markdown",
+            reply_markup=get_main_keyboard()
+        )
+
+    elif query.data == "about":
         keyboard = [[InlineKeyboardButton("⬅️ Назад", callback_data="main_menu")]]
         await query.edit_message_text(
-            text="Этот бот умеет сохранять данные в локальную базу данных SQLite!",
+            text="Этот бот умеет сохранять данные в SQLite и отправлять 3D-анимации!",
             reply_markup=InlineKeyboardMarkup(keyboard)
         )
     elif query.data == "leave_feedback":
@@ -131,7 +148,6 @@ async def text_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             reply_markup=get_main_keyboard()
         )
 
-# Функция админ-панели
 async def admin_panel(update: Update, context: ContextTypes.DEFAULT_TYPE):
     conn = sqlite3.connect("database.db")
     cursor = conn.cursor()
