@@ -75,15 +75,32 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             reply_markup=get_main_keyboard()
         )
 
+import random
+
 async def text_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if context.user_data.get("awaiting_feedback"):
+    text = update.message.text
+
+    # 1. Если нажали "❓ Помощь"
+    if text == "❓ Помощь":
+        await update.message.reply_text(
+            "Раздел помощи:\nНажмите 'ℹ️ О нас' для информации или '✍️ Оставить отзыв' для связи."
+        )
+
+    # 2. Если нажали "🎲 Бросить кость"
+    elif text == "🎲 Бросить кость":
+        score = random.randint(1, 6)
+        await update.message.reply_text(f"🎲 Вам выпало число: {score}!")
+
+    # 3. Если пользователь оставляет отзыв
+    elif context.user_data.get("awaiting_feedback"):
         user_text = update.message.text
         context.user_data["awaiting_feedback"] = False
-        
         await update.message.reply_text(
             f"✅ Спасибо! Твой отзыв принят:\n\n«{user_text}»",
             reply_markup=get_main_keyboard()
         )
+
+    # 4. Во всех остальных случаях
     else:
         await update.message.reply_text(
             "Пожалуйста, используй кнопки для навигации по меню:",
