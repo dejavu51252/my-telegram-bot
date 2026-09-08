@@ -97,11 +97,18 @@ async def text_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
    
 
 if __name__ == "__main__":
-    keep_alive()  # Запускаем фоновый веб-сервер
+    keep_alive()
     
     app = ApplicationBuilder().token(TOKEN).build()
+    
+    # 1. СНАЧАЛА ВСЕ КОМАНДЫ (CommandHandler)
     app.add_handler(CommandHandler("start", start))
+    app.add_handler(CommandHandler("admin", admin_panel))  # <-- Должен быть строго выше MessageHandler
+    
+    # 2. ЗАТЕМ КНОПКИ (CallbackQueryHandler)
     app.add_handler(CallbackQueryHandler(button_handler))
+    
+    # 3. В САМОМ КОНЦЕ — ОБРАБОТКА ОБЫЧНОГО ТЕКСТА
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, text_handler))
 
     print("Бот запущен!")
