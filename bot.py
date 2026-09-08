@@ -80,26 +80,26 @@ import random
 async def text_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     text = update.message.text
 
-    # 1. Если нажали "❓ Помощь"
-    if text == "❓ Помощь":
+    # Добавляем реакцию на «О ферме»
+    if text == "🌱 О ферме":
+        await update.message.reply_text(
+            "Ферма полностью автоматизирована! Динозавр фармит кости, а лабиринт — золото. 🌾"
+        )
+    elif text == "❓ Помощь":
         await update.message.reply_text(
             "Раздел помощи:\nНажмите 'ℹ️ О нас' для информации или '✍️ Оставить отзыв' для связи."
         )
-
-    # 2. Если нажали "🎲 Бросить кость"
     elif text == "🎲 Бросить кость":
         score = random.randint(1, 6)
         await update.message.reply_text(f"🎲 Вам выпало число: {score}!")
-
-    # 3. Если пользователь оставляет отзыв
     elif context.user_data.get("awaiting_feedback"):
-        user_text = update.message.text
-        context.user_data["awaiting_feedback"] = False
+        # Сохранение отзыва
+        ...
+    else:
         await update.message.reply_text(
-            f"✅ Спасибо! Твой отзыв принят:\n\n«{user_text}»",
+            "Пожалуйста, используй кнопки для навигации по меню:",
             reply_markup=get_main_keyboard()
         )
-
     # 4. Во всех остальных случаях
     else:
         await update.message.reply_text(
