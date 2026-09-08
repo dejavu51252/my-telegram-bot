@@ -94,12 +94,7 @@ async def text_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             "Пожалуйста, используй кнопки для навигации по меню:",
             reply_markup=get_main_keyboard()
         )
-    # 4. Во всех остальных случаях
-    else:
-        await update.message.reply_text(
-            "Пожалуйста, используй кнопки для навигации по меню:",
-            reply_markup=get_main_keyboard()
-        )
+   
 
 if __name__ == "__main__":
     keep_alive()  # Запускаем фоновый веб-сервер
