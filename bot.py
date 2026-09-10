@@ -14,15 +14,15 @@ from telegram.ext import (
     filters,
 )
 
-# --- 1. СЕКРЕТНЫЕ ПЕРЕМЕННЫЕ (Берутся из настроек Render) ---
+# --- 1. СЕКРЕТНЫЕ ПЕРЕМЕННЫЕ ---
 TOKEN = os.environ.get("BOT_TOKEN")
-# Считываем ADMIN_ID из Render (если не найден, ставим 0)
 ADMIN_ID = int(os.environ.get("ADMIN_ID", 0))
 
-# --- 2. ИНИЦИАЛИЗАЦИЯ БАЗЫ ДАННЫХ (SQLite) ---
+# --- 2. ИНИЦИАЛИЗАЦИЯ БАЗЫ ДАННЫХ ---
 def init_db():
     conn = sqlite3.connect("database.db")
     cursor = conn.cursor()
+    
     cursor.execute('''
         CREATE TABLE IF NOT EXISTS users (
             user_id INTEGER PRIMARY KEY,
@@ -37,12 +37,40 @@ def init_db():
             text TEXT
         )
     ''')
+    cursor.execute('''
+        CREATE TABLE IF NOT EXISTS products (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            name TEXT,
+            price INTEGER,
+            description TEXT
+        )
+    ''')
+    cursor.execute('''
+        CREATE TABLE IF NOT EXISTS cart (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            user_id INTEGER,
+            product_id INTEGER
+        )
+    ''')
+
+    # Наполняем тестовыми товарами, если пусто
+    cursor.execute("SELECT COUNT(*) FROM products")
+    if cursor.fetchone()[0] == 0:
+        cursor.executemany(
+            "INSERT INTO products (name, price, description) VALUES (?, ?, ?)",
+            [
+                ("VIP Подписка", 500, "Доступ в закрытый канал на 1 месяц"),
+                ("Курс по Telegram", 1500, "Полный гайд по созданию ботов"),
+                ("Консультация", 3000, "1 час личного разбора проекта")
+            ]
+        )
+    
     conn.commit()
     conn.close()
 
 init_db()
 
-# --- 3. ВЕБ-СЕРВЕР ДЛЯ РАБОТЫ 24/7 (Flask) ---
+# --- 3. ВЕБ-СЕРВЕР Flask ---
 web_app = Flask('')
 
 @web_app.route('/')
@@ -58,24 +86,23 @@ def keep_alive():
     t.daemon = True
     t.start()
 
-# --- 4. НАСТРОЙКА ЛОГИРОВАНИЯ ---
 logging.basicConfig(
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
     level=logging.INFO
 )
 
-# --- 5. КЛАВИАТУРЫ И ПОЛЬЗОВАТЕЛЬСКАЯ ЛОГИКА ---
+# --- 4. КЛАВИАТУРЫ ---
 def get_main_keyboard():
     keyboard = [
+        [InlineKeyboardButton("🛍 Каталог товаров", callback_data="catalog")],
+        [InlineKeyboardButton("🛒 Моя корзина", callback_data="view_cart")],
         [InlineKeyboardButton("🎲 Бросить кубик", callback_data="roll_dice")],
-        [InlineKeyboardButton("ℹ️ О нас", callback_data="about")],
         [InlineKeyboardButton("✍️ Оставить отзыв", callback_data="leave_feedback")],
     ]
     return InlineKeyboardMarkup(keyboard)
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user = update.effective_user
-    
     conn = sqlite3.connect("database.db")
     cursor = conn.cursor()
     cursor.execute(
@@ -87,42 +114,107 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     context.user_data["awaiting_feedback"] = False
     await update.message.reply_text(
-        f"Привет, {user.first_name}! Я функциональный Telegram-бот. Выбери действие:",
+        f"Привет, {user.first_name}! Добро пожаловать в наш магазин. Выбери действие:",
         reply_markup=get_main_keyboard()
     )
 
+# --- 5. ОБРАБОТКА КНОПОК МЕНЮ И КАТАЛОГА ---
 async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
+    user_id = query.from_user.id
 
-    if query.data == "roll_dice":
+    if query.data == "catalog":
+        # Показываем список товаров из БД
+        conn = sqlite3.connect("database.db")
+        cursor = conn.cursor()
+        cursor.execute("SELECT id, name, price FROM products")
+        products = cursor.fetchall()
+        conn.close()
+
+        keyboard = []
+        for p_id, name, price in products:
+            keyboard.append([InlineKeyboardButton(f"{name} — {price} руб.", callback_data=f"buy_{p_id}")])
+        keyboard.append([InlineKeyboardButton("⬅️ Назад", callback_data="main_menu")])
+
+        await query.edit_message_text(
+            text="🛒 **Каталог товаров:**\n\nНажми на товар, чтобы добавить его в корзину:",
+            parse_mode="Markdown",
+            reply_markup=InlineKeyboardMarkup(keyboard)
+        )
+
+    elif query.data.startswith("buy_"):
+        # Добавление товара в корзину
+        p_id = int(query.data.split("_")[1])
+        conn = sqlite3.connect("database.db")
+        cursor = conn.cursor()
+        cursor.execute("INSERT INTO cart (user_id, product_id) VALUES (?, ?)", (user_id, p_id))
+        conn.commit()
+        conn.close()
+
+        keyboard = [
+            [InlineKeyboardButton("🛍 Продолжить покупки", callback_data="catalog")],
+            [InlineKeyboardButton("🛒 Перейти в корзину", callback_data="view_cart")]
+        ]
+        await query.edit_message_text(
+            text="✅ Товар успешно добавлен в корзину!",
+            reply_markup=InlineKeyboardMarkup(keyboard)
+        )
+
+    elif query.data == "view_cart":
+        # Просмотр содержимого корзины
+        conn = sqlite3.connect("database.db")
+        cursor = conn.cursor()
+        cursor.execute('''
+            SELECT products.name, products.price 
+            FROM cart 
+            JOIN products ON cart.product_id = products.id 
+            WHERE cart.user_id = ?
+        ''', (user_id,))
+        items = cursor.fetchall()
+        conn.close()
+
+        if not items:
+            keyboard = [[InlineKeyboardButton("🛍 В каталог", callback_data="catalog")]]
+            await query.edit_message_text("Ваша корзина пуста.", reply_markup=InlineKeyboardMarkup(keyboard))
+            return
+
+        total = sum(item[1] for item in items)
+        text = "🛒 **Ваша корзина:**\n\n"
+        for name, price in items:
+            text += f"• {name} — {price} руб.\n"
+        text += f"\n💰 **Итого к оплате:** {total} руб."
+
+        keyboard = [
+            [InlineKeyboardButton("🗑 Очистить корзину", callback_data="clear_cart")],
+            [InlineKeyboardButton("⬅️ Назад", callback_data="main_menu")]
+        ]
+        await query.edit_message_text(text, parse_mode="Markdown", reply_markup=InlineKeyboardMarkup(keyboard))
+
+    elif query.data == "clear_cart":
+        conn = sqlite3.connect("database.db")
+        cursor = conn.cursor()
+        cursor.execute("DELETE FROM cart WHERE user_id = ?", (user_id,))
+        conn.commit()
+        conn.close()
+
+        keyboard = [[InlineKeyboardButton("⬅️ Главное меню", callback_data="main_menu")]]
+        await query.edit_message_text("🗑 Корзина очищена!", reply_markup=InlineKeyboardMarkup(keyboard))
+
+    elif query.data == "roll_dice":
         dice_message = await context.bot.send_dice(chat_id=query.message.chat_id, emoji="🎲")
         value = dice_message.dice.value
         await asyncio.sleep(3)
-        await query.message.reply_text(
-            f"🎯 Выпало число: **{value}**!",
-            parse_mode="Markdown",
-            reply_markup=get_main_keyboard()
-        )
-    elif query.data == "about":
-        keyboard = [[InlineKeyboardButton("⬅️ Назад", callback_data="main_menu")]]
-        await query.edit_message_text(
-            text="Этот бот умеет сохранять данные в SQLite, делать рассылки и запускать 3D-анимации!",
-            reply_markup=InlineKeyboardMarkup(keyboard)
-        )
+        await query.message.reply_text(f"🎯 Выпало число: **{value}**!", parse_mode="Markdown", reply_markup=get_main_keyboard())
+
     elif query.data == "leave_feedback":
         context.user_data["awaiting_feedback"] = True
         keyboard = [[InlineKeyboardButton("❌ Отмена", callback_data="main_menu")]]
-        await query.edit_message_text(
-            text="Напиши свой отзыв следующим сообщением (он сохранится в базу данных):",
-            reply_markup=InlineKeyboardMarkup(keyboard)
-        )
+        await query.edit_message_text("Напиши свой отзыв следующим сообщением:", reply_markup=InlineKeyboardMarkup(keyboard))
+
     elif query.data == "main_menu":
         context.user_data["awaiting_feedback"] = False
-        await query.edit_message_text(
-            text="Выбери действие из меню:",
-            reply_markup=get_main_keyboard()
-        )
+        await query.edit_message_text("Выбери действие из меню:", reply_markup=get_main_keyboard())
 
 async def text_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if context.user_data.get("awaiting_feedback"):
@@ -136,53 +228,28 @@ async def text_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         conn.commit()
         conn.close()
 
-        await update.message.reply_text(
-            f"✅ Отзыв успешно сохранён в базу данных!\n\nТекст: «{user_text}»",
-            reply_markup=get_main_keyboard()
-        )
+        await update.message.reply_text("✅ Отзыв успешно сохранён!", reply_markup=get_main_keyboard())
     else:
-        await update.message.reply_text(
-            "Пожалуйста, используй кнопки для навигации по меню:",
-            reply_markup=get_main_keyboard()
-        )
+        await update.message.reply_text("Пожалуйста, используй кнопки меню:", reply_markup=get_main_keyboard())
 
-# --- 6. ЗАЩИЩЕННЫЕ АДМИН-ФУНКЦИИ ---
-
+# --- 6. АДМИНКА ---
 async def admin_panel(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    user_id = update.effective_user.id
-    if user_id != ADMIN_ID:
-        await update.message.reply_text("⛔️ **Доступ запрещен!** Вы не являетесь администратором.", parse_mode="Markdown")
+    if update.effective_user.id != ADMIN_ID:
+        await update.message.reply_text("⛔️ Доступ запрещен!")
         return
 
     conn = sqlite3.connect("database.db")
     cursor = conn.cursor()
     cursor.execute("SELECT COUNT(*) FROM users")
     users_count = cursor.fetchone()[0]
-    
-    cursor.execute("SELECT user_id, text FROM feedback ORDER BY id DESC LIMIT 5")
-    feedbacks = cursor.fetchall()
     conn.close()
 
-    text = f"📊 **Панель Администратора**\n\nВсего пользователей в базе: **{users_count}**\n\n**Команды админа:**\n/broadcast <текст> — Рассылка всем\n/export — Скачать файл базы данных\n\n**Последние отзывы:**\n"
-    if feedbacks:
-        for u_id, fb_text in feedbacks:
-            text += f"• ID {u_id}: {fb_text}\n"
-    else:
-        text += "Отзывов пока нет."
-
-    await update.message.reply_text(text, parse_mode="Markdown")
+    await update.message.reply_text(f"📊 **Панель Админа**\n\nПользователей: **{users_count}**", parse_mode="Markdown")
 
 async def broadcast(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    user_id = update.effective_user.id
-    if user_id != ADMIN_ID:
-        await update.message.reply_text("⛔️ **Доступ запрещен!**", parse_mode="Markdown")
-        return
-
-    if not context.args:
-        await update.message.reply_text("⚠️ Ошибка! Напиши текст после команды.\nПример: `/broadcast Всем привет!`", parse_mode="Markdown")
-        return
-
-    message_to_send = " ".join(context.args)
+    if update.effective_user.id != ADMIN_ID: return
+    if not context.args: return
+    msg = " ".join(context.args)
     
     conn = sqlite3.connect("database.db")
     cursor = conn.cursor()
@@ -190,46 +257,28 @@ async def broadcast(update: Update, context: ContextTypes.DEFAULT_TYPE):
     users = cursor.fetchall()
     conn.close()
 
-    success_count = 0
     for user in users:
-        u_id = user[0]
         try:
-            await context.bot.send_message(chat_id=u_id, text=f"📢 **Объявление:**\n\n{message_to_send}", parse_mode="Markdown")
-            success_count += 1
+            await context.bot.send_message(chat_id=user[0], text=f"📢 {msg}")
             await asyncio.sleep(0.05)
-        except Exception:
-            pass
-
-    await update.message.reply_text(f"✅ Рассылка завершена!\nСообщение получили: **{success_count}** чел.", parse_mode="Markdown")
+        except Exception: pass
+    await update.message.reply_text("✅ Рассылка завершена!")
 
 async def export_db(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    user_id = update.effective_user.id
-    if user_id != ADMIN_ID:
-        await update.message.reply_text("⛔️ **Доступ запрещен!**", parse_mode="Markdown")
-        return
-
+    if update.effective_user.id != ADMIN_ID: return
     if os.path.exists("database.db"):
-        with open("database.db", "rb") as db_file:
-            await update.message.reply_document(document=db_file, filename="database.db", caption="📁 Вот текущий файл базы данных SQLite.")
-    else:
-        await update.message.reply_text("❌ База данных еще не создана.")
+        with open("database.db", "rb") as f:
+            await update.message.reply_document(document=f, filename="database.db")
 
-# --- 7. ЗАПУСК БОТА ---
 if __name__ == "__main__":
     keep_alive()
-    
     app = ApplicationBuilder().token(TOKEN).build()
     
-    # 1. Регистрация команд
     app.add_handler(CommandHandler("start", start))
     app.add_handler(CommandHandler("admin", admin_panel))
     app.add_handler(CommandHandler("broadcast", broadcast))
     app.add_handler(CommandHandler("export", export_db))
-    
-    # 2. Регистрация кнопок
     app.add_handler(CallbackQueryHandler(button_handler))
-    
-    # 3. Регистрация обработки текста (в самом конце)
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, text_handler))
 
     print("Бот запущен!")
