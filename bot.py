@@ -1,4 +1,5 @@
 import logging
+import os
 from telegram import InlineKeyboardButton, InlineKeyboardMarkup, Update
 from telegram.ext import ApplicationBuilder, CallbackQueryHandler, CommandHandler, ContextTypes
 
@@ -7,9 +8,9 @@ logging.basicConfig(
     level=logging.INFO
 )
 
+# Безопасное получение токена из настроек Render (Environment)
 TOKEN = os.environ.get("BOT_TOKEN")
 
-# Команда /start — создает сообщение с кнопками
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     keyboard = [
         [
@@ -27,10 +28,9 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         reply_markup=reply_markup
     )
 
-# Обработчик нажатий на кнопки
 async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
-    await query.answer() # Обязательный ответ для Telegram, чтобы убрать анимацию загрузки на кнопке
+    await query.answer()
 
     if query.data == "service":
         await query.edit_message_text(
