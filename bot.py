@@ -167,13 +167,13 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await query.edit_message_text("Корзина пуста!")
             return
 
-        # Для UZS у Telegram расчёт идёт в минимальных единицах (тийинах): 1 сум = 100 тийинов
+        # Умножаем price на 100 (перевод сумов в тийины)
         prices = [LabeledPrice(name, price * 100) for name, price in items]
 
         await context.bot.send_invoice(
             chat_id=query.message.chat_id,
             title="Оплата заказа",
-            description="Оплата товаров в магазине через Click",
+            description="Тестовая оплата через Click",
             payload="click_order_payload",
             provider_token=PAYMENT_TOKEN,
             currency="UZS",
