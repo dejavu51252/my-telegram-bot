@@ -7,7 +7,7 @@ logging.basicConfig(
     level=logging.INFO
 )
 
-TOKEN = "8314078721:AAG2FicKSx2cQdFE4ml7cRuf2DTHwPHuXHs"
+TOKEN = os.environ.get("BOT_TOKEN")
 
 # Команда /start — создает сообщение с кнопками
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
